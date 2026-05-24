@@ -8,8 +8,12 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { LLMAgent } from '../src/llm-agent';
 import { loadConfig } from '../src/config';
 import { getSkillsLoaded } from '../src/skill';
+import { setLogLevel } from '../src/logger';
 
 const config = loadConfig();
+if (config.logLevel) {
+  setLogLevel(config.logLevel);
+}
 const hasApiKey =
   config.llm.apiKey &&
   !config.llm.apiKey.startsWith('${') &&

@@ -6,12 +6,9 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { spawn, ChildProcess } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { copyFileSync, existsSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = join(__dirname, '..');
-const CONFIG_SOURCE = join(PROJECT_ROOT, '..', 'server.config.json');
-const CONFIG_TARGET = join(PROJECT_ROOT, 'server.config.json');
+const ROOT = join(__dirname, '..', '..');
 
 class MCPTestClient {
   private process: ChildProcess;
@@ -20,9 +17,9 @@ class MCPTestClient {
   private readyResolve: (() => void) | null = null;
 
   constructor() {
-    this.process = spawn('bun', ['src/index.ts'], {
+    this.process = spawn('bun', ['mcp-server/src/index.ts'], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: PROJECT_ROOT,
+      cwd: ROOT,
     });
 
     this.process.stdout?.on('data', (data: Buffer) => {
@@ -95,9 +92,6 @@ describe('prompts', () => {
   let client: MCPTestClient;
 
   beforeAll(async () => {
-    if (existsSync(CONFIG_SOURCE) && !existsSync(CONFIG_TARGET)) {
-      copyFileSync(CONFIG_SOURCE, CONFIG_TARGET);
-    }
     client = new MCPTestClient();
     await client.initialize();
   });

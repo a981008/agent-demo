@@ -5,12 +5,11 @@
 import { loadConfig } from './config';
 import { LLMAgent } from './llm-agent';
 import { getSkillsLoaded } from './skill';
-import { createLogger } from './logger';
+import { createLogger, setLogLevel } from './logger';
 
 const config = loadConfig();
-const rootLog = createLogger('Root');
 if (config.logLevel) {
-  rootLog.setLevel(config.logLevel);
+  setLogLevel(config.logLevel);
 }
 
 const log = createLogger('CLI');
@@ -40,7 +39,7 @@ async function main() {
       if (isWaiting) {
         return;
       }
-      rl.question('你: ', async (input) => {
+      rl.question('YOU: ', async (input) => {
         const message = input.trim();
         if (!message || message === 'exit' || message === 'quit' || message === 'q') {
           rl.close();
@@ -52,7 +51,7 @@ async function main() {
           const start = Date.now();
           const response = await agent.chat(message);
           const elapsed = Date.now() - start;
-          console.log(`\nClaude: ${response}`);
+          console.log(`\nAgent: ${response}`);
           log.info('耗时: {}ms', elapsed);
         } catch (e) {
           process.stdout.write('\x1b[0m');

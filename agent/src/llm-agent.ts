@@ -72,18 +72,14 @@ export class LLMAgent {
         content: response.content,
       });
 
-      for (const { toolCall, result } of results) {
-        this.conversationHistory.push({
-          role: 'user',
-          content: [
-            {
-              type: 'tool_result',
-              tool_use_id: toolCall.id,
-              content: this.formatToolResult(result),
-            },
-          ],
-        });
-      }
+      this.conversationHistory.push({
+        role: 'user',
+        content: results.map(({ toolCall, result }) => ({
+          type: 'tool_result',
+          tool_use_id: toolCall.id,
+          content: this.formatToolResult(result),
+        })),
+      });
 
       response = await this.anthropic.messages.create({
         model: this.model,

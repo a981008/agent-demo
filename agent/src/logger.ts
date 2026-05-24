@@ -88,3 +88,7 @@ const logger = new Logger();
 export function createLogger(prefix: string): Logger {
   return logger.child(prefix);
 }
+
+export function setLogLevel(level: LogLevel): void {
+  logger.setLevel(level);
+}

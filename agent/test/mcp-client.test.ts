@@ -6,23 +6,16 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { MCPClient } from '../src/mcp-client';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { copyFileSync, existsSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = join(__dirname, '..', '..');
-const SERVER_DIR = join(PROJECT_ROOT, 'mcp-server');
-const CONFIG_SOURCE = join(PROJECT_ROOT, 'server.config.json');
-const CONFIG_TARGET = join(SERVER_DIR, 'server.config.json');
+const ROOT = join(__dirname, '..', '..');
 
 describe('MCPClient', () => {
   let client: MCPClient;
 
   beforeAll(async () => {
-    if (existsSync(CONFIG_SOURCE) && !existsSync(CONFIG_TARGET)) {
-      copyFileSync(CONFIG_SOURCE, CONFIG_TARGET);
-    }
     client = new MCPClient();
-    await client.connect('bun', ['src/index.ts'], { cwd: SERVER_DIR });
+    await client.connect('bun', ['mcp-server/src/index.ts'], { cwd: ROOT });
   });
 
   afterAll(() => {
