@@ -148,7 +148,7 @@ const docs = await client.readResource('docs://amap');
 ### 1. 安装依赖
 
 ```bash
-bun install
+npm install
 ```
 
 ### 2. 配置
@@ -189,14 +189,14 @@ bun install
 ### 3. 运行
 
 ```bash
-bun run agent
+npm run agent
 ```
 
 ## 开发
 
 ```bash
-bun run check   # 类型检查
-bun run lint    # 代码检查
-bun run format  # 格式化
-bun test        # 测试
+npm run check   # 类型检查
+npm run lint    # 代码检查
+npm run format  # 格式化
+npm test        # 测试
 ```
