@@ -1,0 +1,16 @@
+{
+  "llm": {
+    "model": "${GENERATION_MODEL}",
+    "apiKey": "${ANTHROPIC_API_KEY}",
+    "baseUrl": "${ANTHROPIC_BASE_URL}"
+  },
+  "mcpServers": [
+    {
+      "name": "mcp-demo",
+      "command": "npm",
+      "args": ["run", "server"]
+    }
+  ],
+  "skillEnabled": true,
+  "logLevel": "debug"
+}

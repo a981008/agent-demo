@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "./dist",
+    "rootDir": ".",
+    "types": ["node", "bun-types"]
+  },
+  "include": ["agent/src/**/*", "agent/test/**/*", "mcp-server/src/**/*", "mcp-server/test/**/*"]
+}
