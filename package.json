@@ -11,13 +11,6 @@
     "check": "npm run lint && npm run format && tsc --noEmit",
     "prepare": "husky"
   },
-  "lint-staged": {
-    "*.ts": [
-      "npm run lint",
-      "npm run format",
-      "tsc --noEmit"
-    ]
-  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
