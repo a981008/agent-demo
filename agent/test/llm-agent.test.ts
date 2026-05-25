@@ -59,7 +59,7 @@ describe('LLMAgent 工具列表', () => {
     expect(tools.length).toBeGreaterThan(0);
 
     const toolNames = tools.map((t: any) => t.name);
-    expect(toolNames).toContain('skill_date');
+    expect(toolNames).toContain('load_skill');
     expect(toolNames).toContain('amap_weather');
   });
 

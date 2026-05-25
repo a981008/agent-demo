@@ -5,7 +5,7 @@
  */
 
 import { describe, test, expect, beforeEach } from 'bun:test';
-import { SkillSystem, SkillContext, SkillTool, globalSkillSystem } from '../src/skill';
+import { SkillSystem, SkillContext, globalSkillSystem } from '../src/skill';
 
 /**
  * 创建一个测试用的 Skill
@@ -15,17 +15,7 @@ function createTestSkill(name: string, description: string): SkillContext {
     name,
     description,
     invoke: async (params) => ({ result: `processed ${params.input}` }),
-    getToolDefinition: () => ({
-      name: `skill_${name}`,
-      description,
-      input_schema: {
-        type: 'object',
-        properties: {
-          input: { type: 'string', description: '输入值' },
-        },
-        required: ['input'],
-      },
-    }),
+    getContent: () => `name: ${name}\ndescription: "${description}"`,
     loadFullContent: async () => {},
   };
 }
@@ -104,32 +94,6 @@ describe('SkillSystem', () => {
   });
 
   // --------------------------------------------------------
-  // getTools 相关测试
-  // --------------------------------------------------------
-  describe('getTools 功能', () => {
-    test('应该返回所有 skill 的工具定义', () => {
-      system.register(createTestSkill('tool1', '工具1'));
-      system.register(createTestSkill('tool2', '工具2'));
-      const tools = system.getTools();
-      expect(tools).toHaveLength(2);
-    });
-
-    test('返回的工具定义应符合 Claude 规范', () => {
-      system.register(createTestSkill('claude', '符合规范'));
-      const tools = system.getTools();
-      const tool = tools[0];
-      expect(tool.name).toBe('skill_claude');
-      expect(tool.input_schema.type).toBe('object');
-      expect(tool.input_schema.properties).toBeDefined();
-    });
-
-    test('空系统应返回空数组', () => {
-      const tools = system.getTools();
-      expect(tools).toHaveLength(0);
-    });
-  });
-
-  // --------------------------------------------------------
   // 统计相关测试
   // --------------------------------------------------------
   describe('统计功能', () => {
@@ -194,40 +158,18 @@ describe('SkillSystem', () => {
   });
 
   // --------------------------------------------------------
-  // 类型定义测试
+  // 接口定义测试
   // --------------------------------------------------------
-  describe('类型定义', () => {
-    test('SkillTool 应包含必要字段', () => {
-      const tool: SkillTool = {
-        name: 'test_tool',
-        description: '测试工具',
-        input_schema: {
-          type: 'object',
-          properties: {
-            param1: { type: 'string', description: '参数1' },
-          },
-          required: ['param1'],
-        },
-      };
-      expect(tool.name).toBeDefined();
-      expect(tool.description).toBeDefined();
-      expect(tool.input_schema.type).toBe('object');
-    });
-
+  describe('接口定义', () => {
     test('SkillContext 应包含必要方法', () => {
       const skill: SkillContext = {
         name: 'context_test',
         description: '上下文测试',
         invoke: async () => ({}),
-        getToolDefinition: () => ({
-          name: 'context_test',
-          description: '测试',
-          input_schema: { type: 'object', properties: {}, required: [] },
-        }),
+        getContent: () => '',
         loadFullContent: async () => {},
       };
       expect(typeof skill.invoke).toBe('function');
-      expect(typeof skill.getToolDefinition).toBe('function');
     });
   });
 });
@@ -252,16 +194,6 @@ describe('渐进式披露', () => {
     expect(skill).toBeDefined();
     expect(skill?.name).toBe('date');
     expect(skill?.description).toContain('date');
-  });
-
-  test('getToolDefinition 初始不包含参数定义', async () => {
-    const system = new SkillSystem();
-    await system.loadSkills();
-
-    const tools = system.getTools();
-    const dateTool = tools.find((t: any) => t.name === 'skill_date');
-    expect(dateTool).toBeDefined();
-    expect(dateTool?.input_schema.properties).toEqual({});
   });
 
   test('invoke 时才完整加载 skill', async () => {

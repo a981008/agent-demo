@@ -1,30 +1,12 @@
 import { createLogger } from './logger.js';
 import { estimateTokens } from './utils.js';
-
-export interface ToolInputSchema {
-  type: 'object';
-  properties: Record<
-    string,
-    {
-      type: string;
-      description?: string;
-      enum?: string[];
-    }
-  >;
-  required?: string[];
-}
-
-export interface SkillTool {
-  name: string;
-  description: string;
-  input_schema: ToolInputSchema;
-}
+import { join } from 'path';
 
 export interface SkillContext {
   name: string;
   description: string;
   invoke(params: any): Promise<any>;
-  getToolDefinition(): SkillTool;
+  getContent(): string;
   loadFullContent(): Promise<void>;
 }
 
@@ -45,7 +27,12 @@ interface LazySkill {
   content: string;
   loaded: boolean;
   invokeFn?: (params: any) => Promise<any>;
-  paramsSchema?: { properties: Record<string, any>; required: string[] };
+}
+
+interface RegistryEntry {
+  description: string;
+  dirName: string;
+  skillsDir: string;
 }
 
 const log = createLogger('Skill');
@@ -54,6 +41,7 @@ export class SkillSystem {
   private skills: Map<string, SkillContext> = new Map();
   private callLog: Array<{ skill: string; params: any; tokens: number }> = [];
   private mcpClients: Map<string, any> = new Map();
+  private registry: Map<string, RegistryEntry> = new Map();
 
   register(skill: SkillContext) {
     this.skills.set(skill.name, skill);
@@ -61,6 +49,28 @@ export class SkillSystem {
 
   registerMcpClient(name: string, client: any) {
     this.mcpClients.set(name, client);
+  }
+
+  /** Level 1: 从注册表生成技能目录文本，用于 SYSTEM prompt */
+  listSkills(): string {
+    if (this.registry.size === 0) return '';
+    const lines: string[] = ['Available skills:'];
+    for (const [name, entry] of this.registry) {
+      lines.push(`- ${name}: ${entry.description}`);
+    }
+    return lines.join('\n');
+  }
+
+  /** Level 2: 按名称查找并加载完整技能内容，无路径遍历风险 */
+  async loadSkill(name: string): Promise<string> {
+    const entry = this.registry.get(name);
+    if (!entry) return `Skill "${name}" not found`;
+
+    const skill = this.skills.get(name);
+    if (!skill) return `Skill "${name}" not found`;
+
+    const result = await this.invoke(name, {});
+    return `=== ${name} ===\n${skill.getContent()}\n\nResult:\n${JSON.stringify(result.data, null, 2)}`;
   }
 
   getSkill(name: string): SkillContext | undefined {
@@ -71,32 +81,28 @@ export class SkillSystem {
     return this.skills;
   }
 
-  /**
-   * 从 .agent/skills/ 目录加载所有 skill（仅基本信息）
-   */
-  async loadSkills(): Promise<void> {
+  async loadSkills(skillsDir?: string): Promise<void> {
+    const dir = skillsDir ?? join(process.cwd(), '.agent/skills');
     const { readdir, readFile } = await import('fs/promises');
-    const { join } = await import('path');
-
-    const skillsDir = join(process.cwd(), '.agent/skills');
 
     try {
-      const entries = await readdir(skillsDir, { withFileTypes: true });
+      const entries = await readdir(dir, { withFileTypes: true });
 
       for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const skillDir = join(skillsDir, entry.name);
-          const skillFile = join(skillDir, 'SKILL.md');
-
-          try {
-            const content = await readFile(skillFile, 'utf-8');
-            const skill = this.createLazySkill(entry.name, content);
-            if (skill) {
-              this.skills.set(skill.name, skill);
-            }
-          } catch (err) {
-            log.debug(`跳过无效 skill: ${entry.name}`, err);
+        if (!entry.isDirectory()) continue;
+        try {
+          const content = await readFile(join(dir, entry.name, 'SKILL.md'), 'utf-8');
+          const skill = this.createLazySkill(entry.name, dir, content);
+          if (skill) {
+            this.skills.set(skill.name, skill);
+            this.registry.set(skill.name, {
+              description: skill.description,
+              dirName: entry.name,
+              skillsDir: dir,
+            });
           }
+        } catch {
+          log.debug(`跳过无效 skill: ${entry.name}`);
         }
       }
     } catch {
@@ -104,118 +110,49 @@ export class SkillSystem {
     }
   }
 
-  /**
-   * 创建懒加载 Skill（首次只加载 name 和 description）
-   */
-  private createLazySkill(dirName: string, content: string): SkillContext | null {
+  private createLazySkill(
+    dirName: string,
+    skillsDir: string,
+    content: string,
+  ): SkillContext | null {
     const nameMatch = content.match(/^name:\s*(.+)$/m);
     if (!nameMatch) return null;
     const name = nameMatch[1].trim();
-
     const descMatch = content.match(/^description:\s*"(.+)"$/m);
     const description = descMatch ? descMatch[1] : '';
 
-    const lazySkill: LazySkill = {
-      name,
-      description,
-      dirName,
-      content,
-      loaded: false,
-    };
+    const lazy: LazySkill = { name, description, dirName, content, loaded: false };
 
-    const self = this;
     return {
       name,
       description,
-      invoke: async function (params: any) {
-        // 调用时才会加载完整内容
-        await self.doLoadFullContent(lazySkill);
-        if (lazySkill.invokeFn) {
-          return lazySkill.invokeFn(params);
-        }
-        return { error: 'No implementation' };
+      invoke: async (params: any) => {
+        await this.doLoadFullContent(lazy, skillsDir);
+        return lazy.invokeFn ? lazy.invokeFn(params) : { error: 'No implementation' };
       },
-      getToolDefinition: () => ({
-        name: `skill_${name}`,
-        description,
-        input_schema: {
-          type: 'object',
-          properties: lazySkill.paramsSchema?.properties || {},
-          required: lazySkill.paramsSchema?.required || [],
-        },
-      }),
-      loadFullContent: async function () {
-        if (!lazySkill.loaded) {
-          await self.doLoadFullContent(lazySkill);
-        }
+      getContent: () => lazy.content,
+      loadFullContent: async () => {
+        if (!lazy.loaded) await this.doLoadFullContent(lazy, skillsDir);
       },
     };
   }
 
-  /**
-   * 加载完整 skill 内容（渐进披露）
-   */
-  private async doLoadFullContent(lazySkill: LazySkill): Promise<void> {
-    const content = lazySkill.content;
-    const dirName = lazySkill.dirName;
-
-    // 提取 script 字段
-    const scriptMatch = content.match(/^script:\s*(.+)$/m);
+  private async doLoadFullContent(lazy: LazySkill, skillsDir: string): Promise<void> {
+    const scriptMatch = lazy.content.match(/^script:\s*(.+)$/m);
     const scriptPath = scriptMatch ? scriptMatch[1].trim() : null;
 
-    // 提取参数定义
-    const paramsMatch = content.match(/<params>([\s\S]*?)<\/params>/);
-    lazySkill.paramsSchema = paramsMatch
-      ? this.parseParamsSchema(paramsMatch[1])
-      : { properties: {}, required: [] };
-
-    // 动态加载脚本
     if (scriptPath) {
       try {
-        const { join } = await import('path');
         const { pathToFileURL } = await import('url');
-        const skillDir = join(process.cwd(), '.agent/skills', dirName);
-        const modulePath = pathToFileURL(join(skillDir, scriptPath)).href;
+        const modulePath = pathToFileURL(join(skillsDir, lazy.dirName, scriptPath)).href;
         const mod = await import(modulePath);
-        lazySkill.invokeFn = mod.invoke;
+        lazy.invokeFn = mod.invoke;
       } catch (e) {
-        log.debug(`脚本加载失败: ${lazySkill.name}`, e);
+        log.debug(`脚本加载失败: ${lazy.name}`, e);
       }
     }
 
-    lazySkill.loaded = true;
-    log.debug(`完整加载: ${lazySkill.name}`);
-  }
-
-  private parseParamsSchema(content: string): {
-    properties: Record<string, any>;
-    required: string[];
-  } {
-    const properties: Record<string, any> = {};
-    const required: string[] = [];
-
-    const lines = content.split('\n');
-    for (const line of lines) {
-      const paramMatch = line.match(/^\s*(\w+)\s*:\s*(\w+)/);
-      if (paramMatch) {
-        const [, paramName, paramType] = paramMatch;
-        properties[paramName] = { type: paramType.toLowerCase() };
-        required.push(paramName);
-      }
-    }
-
-    return { properties, required };
-  }
-
-  /**
-   * 获取所有 skill 的 tool 定义（符合 Claude 规范）
-   */
-  getTools(): SkillTool[] {
-    const tools: SkillTool[] = [];
-    for (const skill of this.skills.values()) {
-      tools.push(skill.getToolDefinition());
-    }
-    return tools;
+    lazy.loaded = true;
   }
 
   async invoke(skillName: string, params: any): Promise<SkillResult> {
@@ -230,8 +167,7 @@ export class SkillSystem {
 
     log.debug(`使用: ${skillName}(${JSON.stringify(params)})`);
 
-    // 调用时才加载完整内容
-    if ('loadFullContent' in skill && typeof skill.loadFullContent === 'function') {
+    if (typeof skill.loadFullContent === 'function') {
       await skill.loadFullContent();
     }
 
@@ -253,7 +189,7 @@ export class SkillSystem {
   }
 
   getStats() {
-    const total = this.callLog.reduce((sum, log) => sum + log.tokens, 0);
+    const total = this.callLog.reduce((sum, l) => sum + l.tokens, 0);
     return { totalCalls: this.callLog.length, totalTokens: total };
   }
 }

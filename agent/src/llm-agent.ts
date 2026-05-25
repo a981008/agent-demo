@@ -46,19 +46,35 @@ export class LLMAgent {
     }
   }
 
+  private buildSystemPrompt(): string {
+    const parts: string[] = ['You are a helpful AI assistant.'];
+
+    if (this.skillEnabled) {
+      const dir = globalSkillSystem.listSkills();
+      if (dir) {
+        parts.push('\n' + dir);
+        parts.push('\nUse the `load_skill` tool to load and execute a skill by name.');
+      }
+    }
+
+    return parts.join('\n');
+  }
+
   async chat(message: string): Promise<string> {
     const tools = this.toolsCache ?? (await this.listTools());
+    const system = this.buildSystemPrompt();
 
     this.conversationHistory.push({
       role: 'user',
       content: [{ type: 'text', text: message }],
     });
 
-    log.debug('提示词\n{}', JSON.stringify({ messages: this.conversationHistory, tools }));
+    log.debug('提示词\n{}', JSON.stringify({ system, messages: this.conversationHistory, tools }));
 
     let response = await this.anthropic.messages.create({
       model: this.model,
       max_tokens: 1024,
+      system,
       tools,
       messages: this.conversationHistory,
     });
@@ -84,6 +100,7 @@ export class LLMAgent {
       response = await this.anthropic.messages.create({
         model: this.model,
         max_tokens: 1024,
+        system,
         tools,
         messages: this.conversationHistory,
       });
@@ -113,15 +130,11 @@ export class LLMAgent {
   }
 
   private async executeToolCalls(toolCalls: any[]): Promise<any[]> {
-    log.debug(
-      '工具调用',
-      toolCalls.map((tc) => tc.name),
-    );
     const results = await Promise.all(
       toolCalls.map(async (toolCall) => {
-        log.debug(`调用 -> ${toolCall.name}(${JSON.stringify(toolCall.input)})`);
+        log.debug(`Tool 调用 -> ${toolCall.name}(${JSON.stringify(toolCall.input)})`);
         const result = await this.callTool(toolCall.name, toolCall.input);
-        log.debug(`结果 <- ${JSON.stringify(result).slice(0, 100)}`);
+        log.debug(`Tool 结果 <- ${JSON.stringify(result)}`);
         return { toolCall, result };
       }),
     );
@@ -129,14 +142,12 @@ export class LLMAgent {
   }
 
   private async callTool(name: string, args: any): Promise<any> {
-    // 使用 Skill（name 前缀为 skill_）
-    if (this.skillEnabled && name.startsWith('skill_')) {
-      const skillName = name.replace(/^skill_/, '');
-      const skill = globalSkillSystem.getSkill(skillName);
-      if (skill) {
-        const skillResult = (await globalSkillSystem.invoke(skillName, args)).data;
-        return skillResult;
-      }
+    // 使用 Skill（通过注册表按名查找，无路径遍历风险）
+    if (this.skillEnabled && name === 'load_skill') {
+      const skillName = args.name;
+      if (!skillName) return { text: 'Missing "name" argument.' };
+      const result = await globalSkillSystem.loadSkill(skillName);
+      return { text: result };
     }
 
     // 使用 MCP 工具
@@ -187,11 +198,20 @@ export class LLMAgent {
   async listTools(): Promise<any[]> {
     const tools: any[] = [];
 
-    // 只在 skill 开启时添加 skill 工具
+    // 单个 load_skill 工具：通过注册表按名查找并加载技能
     if (this.skillEnabled) {
-      for (const tool of globalSkillSystem.getTools()) {
-        tools.push(tool);
-      }
+      tools.push({
+        name: 'load_skill',
+        description:
+          'Load and execute a skill by name. Available skills are listed in the system prompt.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'The skill name to load (e.g., date, weather)' },
+          },
+          required: ['name'],
+        },
+      });
     }
 
     for (const [, client] of this.mcpClients) {
